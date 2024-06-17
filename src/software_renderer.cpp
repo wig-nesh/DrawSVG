@@ -4,6 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <limits.h>
 
 #include "triangulation.h"
 
@@ -244,6 +245,60 @@ void SoftwareRendererImp::rasterize_line( float x0, float y0,
 
   // Task 2: 
   // Implement line rasterization
+
+  float m = (y1-y0) / (x1-x0); // slope
+  float e = 0;             // error
+
+  if (m <= 1 && m >= -1) {
+    if (x1 < x0) { // if x1 < x0, we need to flip the vector
+      swap(x0, x1); 
+      swap(y0, y1);
+    }
+    float y = y0;
+    for (float x = x0; x <= x1; x+=1.0) { // traverse the length of vector
+      rasterize_point(x, y, color);
+      if (m >= 0 && m <= 1) { // positive slope
+        if (e + m < 0.5) e += m;
+        else {
+          y += 1.0;
+          e += m - 1;
+        }
+      }
+      else if (m < 0 && m >= -1){ // negative slope
+        if (e + m > -0.5) e += m;
+        else {
+          y -= 1.0;
+          e += m + 1;
+        }
+      }
+    }
+  }
+  else {
+    if (y1 < y0) { // if y1 < y0, we need to flip the vector
+      swap(x0, x1); 
+      swap(y0, y1);
+    }
+    float x = x0;
+    cout << m << "\n";
+    for (float y = y0; y <= y1; y+=1.0) { // traverse the length of vector
+      rasterize_point(x, y, color);
+      if (m > 1 && m < numeric_limits<float>::max()) { // positive slope
+        if (e + 1/m < 0.5) e += 1/m;
+        else {
+          x += 1.0;
+          e += 1/m - 1;
+        }
+      }
+      else if (m < -1 && m > -numeric_limits<float>::max()){ // negative slope
+        if (e + 1/m > -0.5) e += 1/m;
+        else {
+          x -= 1.0;
+          e += 1/m + 1;
+        }
+      }
+    }
+  }
+
 }
 
 void SoftwareRendererImp::rasterize_triangle( float x0, float y0,
