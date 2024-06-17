@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <limits.h>
+#include <stack>
 
 #include "triangulation.h"
 
@@ -279,7 +280,6 @@ void SoftwareRendererImp::rasterize_line( float x0, float y0,
       swap(y0, y1);
     }
     float x = x0;
-    cout << m << "\n";
     for (float y = y0; y <= y1; y+=1.0) { // traverse the length of vector
       rasterize_point(x, y, color);
       if (m > 1 && m < numeric_limits<float>::max()) { // positive slope
@@ -301,13 +301,148 @@ void SoftwareRendererImp::rasterize_line( float x0, float y0,
 
 }
 
-void SoftwareRendererImp::rasterize_triangle( float x0, float y0,
-                                              float x1, float y1,
-                                              float x2, float y2,
+bool linesIntersect(Vector2D p1, Vector2D p2, Vector2D q1, Vector2D q2) {
+    float s1_x = p2.x - p1.x;
+    float s1_y = p2.y - p1.y;
+    float s2_x = q2.x - q1.x;
+    float s2_y = q2.y - q1.y;
+
+    float s = (-s1_y * (p1.x - q1.x) + s1_x * (p1.y - q1.y)) / (-s2_x * s1_y + s1_x * s2_y);
+    float t = ( s2_x * (p1.y - q1.y) - s2_y * (p1.x - q1.x)) / (-s2_x * s1_y + s1_x * s2_y);
+
+    return (s >= 0 && s <= 1 && t >= 0 && t <= 1);
+}
+
+
+void SoftwareRendererImp::rasterize_triangle( float x0, float y0, // A
+                                              float x1, float y1, // B
+                                              float x2, float y2, // C
                                               Color color ) {
   // Task 3: 
   // Implement triangle rasterization
 
+  Vector2D A = Vector2D(x0,y0);
+  Vector2D B = Vector2D(x1,y1);
+  Vector2D C = Vector2D(x2,y2);
+
+  Color boxCol;
+  boxCol.r = 0;
+  boxCol.g = 1;
+  boxCol.b = 0;
+  boxCol.a = 1;
+
+  Color triangleCol;
+  triangleCol.r = 0;
+  triangleCol.g = 0;
+  triangleCol.b = 1;
+  triangleCol.a = 1;
+
+  // triangle visualization
+  rasterize_line(A.x, A.y, B.x, B.y, triangleCol);
+  rasterize_line(B.x, B.y, C.x, C.y, triangleCol);
+  rasterize_line(C.x, C.y, A.x, A.y, triangleCol);
+
+  // narrow down search area to bounding box
+  float top = min({A.y, B.y, C.y});
+  float bottom = max({A.y, B.y, C.y});
+  float left = min({A.x, B.x, C.x});
+  float right = max({A.x, B.x, C.x});
+
+  // edge vectors
+  Vector2D AB = B - A;
+  Vector2D BC = C - B;
+  Vector2D CA = A - C;
+
+  int max_depth = 3;
+  stack<pair<vector<float>, int>> stack;
+  stack.push({{top, bottom, left, right}, 0});
+
+  while (!stack.empty()) {
+    auto [c, depth] = stack.top();
+    stack.pop();
+
+    float cTop = c[0];
+    float cBottom = c[1];
+    float cLeft = c[2];
+    float cRight = c[3];
+    Vector2D P = Vector2D(cLeft, cTop);
+    Vector2D Q = Vector2D(cRight, cTop);
+    Vector2D R = Vector2D(cRight, cBottom);
+    Vector2D S = Vector2D(cLeft, cBottom);
+
+    // only continue if bounding box intersects triangle
+    bool ignore_box = true;
+    // first check if any vertices of the box intersects the triangle
+    float arr[8] = {cLeft, cTop, cRight, cTop, cLeft, cBottom, cRight, cBottom};
+    for (int it = 0; it < 8; it+=2) {
+      Vector2D AP = Vector2D(arr[it]-x0, arr[it+1]-y0);
+      Vector2D BP = Vector2D(arr[it]-x1, arr[it+1]-y1);
+      Vector2D CP = Vector2D(arr[it]-x2, arr[it+1]-y2);
+      float crossA = AB.x*AP.y - AB.y*AP.x;
+      float crossB = BC.x*BP.y - BC.y*BP.x;
+      float crossC = CA.x*CP.y - CA.y*CP.x;
+      if (crossA<0 && crossB<0 && crossC<0 || crossA>=0 && crossB>=0 && crossC>=0) {
+        ignore_box = false;
+        break;
+      }
+    }
+    // if it passes the previous check, check edges
+    if (ignore_box) {
+      Vector2D box_edge_arr[8] = {P, Q, Q, R, R, S, S, P};
+      Vector2D tri_edge_arr[6] = {A, B, B, C, C, A};
+      for (int it = 0; it < 8; it+=2) {
+        Vector2D rectQ = box_edge_arr[it];
+        Vector2D rectR = box_edge_arr[it+1];
+        for (int it2 = 0; it2 < 6; it2+=2) {
+          Vector2D triA = tri_edge_arr[it2];
+          Vector2D triB = tri_edge_arr[it2+1];
+          ignore_box = !linesIntersect(triA, triB, rectQ, rectR);
+          if (!ignore_box) break;
+        }
+        if (!ignore_box) break;
+      }
+    }
+
+    if (!ignore_box) {
+      if (depth == max_depth) {
+        for (float i = floor(cLeft)+0.5; i <= floor(cRight)+0.5; i+=1.0) {
+          for (float j = floor(cTop)+0.5; j <= floor(cBottom)+0.5; j+=1.0) {
+            Vector2D AP = Vector2D(i-x0, j-y0);
+            Vector2D BP = Vector2D(i-x1, j-y1);
+            Vector2D CP = Vector2D(i-x2, j-y2);
+            // 2d cross products
+            float crossA = AB.x*AP.y - AB.y*AP.x;
+            float crossB = BC.x*BP.y - BC.y*BP.x;
+            float crossC = CA.x*CP.y - CA.y*CP.x;
+            // signs are same
+            if (crossA<0 && crossB<0 && crossC<0 || crossA>=0 && crossB>=0 && crossC>=0) {
+              rasterize_point(i, j, color);
+            }
+          }
+        }
+        // box visualizations
+        rasterize_line(cLeft, cTop, cRight, cTop, boxCol);
+        rasterize_line(cLeft, cTop, cLeft, cBottom, boxCol);
+        rasterize_line(cRight, cBottom, cLeft, cBottom, boxCol);
+        rasterize_line(cRight, cBottom, cRight, cTop, boxCol);
+      }
+      else {
+        float midVertical = cTop + (cBottom - cTop) / 2;
+        float midHorizontal = cLeft + (cRight - cLeft) / 2;
+        stack.push({{cTop, midVertical, cLeft, midHorizontal}, depth + 1});
+        stack.push({{cTop, midVertical, midHorizontal, cRight}, depth + 1});
+        stack.push({{midVertical, cBottom, cLeft, midHorizontal}, depth + 1});
+        stack.push({{midVertical, cBottom, midHorizontal, cRight}, depth + 1});
+      }
+    }
+    else {
+      // more box visualizations
+      rasterize_line(cLeft, cTop, cRight, cTop, boxCol);
+      rasterize_line(cLeft, cTop, cLeft, cBottom, boxCol);
+      rasterize_line(cRight, cBottom, cLeft, cBottom, boxCol);
+      rasterize_line(cRight, cBottom, cRight, cTop, boxCol);
+    }
+  }
 }
 
 void SoftwareRendererImp::rasterize_image( float x0, float y0,
